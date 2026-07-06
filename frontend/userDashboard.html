@@ -439,14 +439,12 @@
 }
 
 .train-wagon {
-    background: #22c55e;
     color: #ffffff;
     font-weight: 700;
     font-size: 14px;
     padding: 7px 16px;
     border-radius: 6px;
-    border: 2px solid #15803d;
-    border-bottom: 4px solid #166534;
+    border: 2px solid rgba(0,0,0,0.15);
     margin-right: 12px;
 }
 
@@ -567,6 +565,16 @@ tbody tr:hover{
 .train-wagon{
     border-radius:12px !important;
     box-shadow:0 8px 22px rgba(0,0,0,.25);
+    border: none !important;
+    color: white !important;
+}
+
+/* Premium Override Notice Styling */
+.train-wagon.wagon-green {
+    background: linear-gradient(135deg, #059669, #16a34a) !important;
+}
+.train-wagon.wagon-blue {
+    background: linear-gradient(135deg, #0057ff, #0ea5e9) !important;
 }
 </style>
 </head>
@@ -599,14 +607,12 @@ tbody tr:hover{
         <div class="nav-item" onclick="window.location.href='index.html'">
             <i class="fa-solid fa-house"></i> Home Portal
         </div>
-        <!-- Moved Logout button seamlessly up next to the menu links -->
         <div class="nav-item logout-item" id="logoutBtn">
             <i class="fa-solid fa-right-from-bracket"></i> Logout
         </div>
     </nav>
 
     <div class="sidebar-footer">
-        <!-- Kept empty to remove old bottom placement space blocks -->
     </div>
 </aside>
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -627,7 +633,7 @@ tbody tr:hover{
     <div class="message-train">
         <span class="train-engine">🚂</span>
         <div id="trainWagonsWrapper">
-            <div class="train-wagon">LOADING SYSTEM DATA...</div>
+            <div class="train-wagon wagon-green">LOADING SYSTEM DATA...</div>
         </div>
     </div>
 </div>
@@ -752,7 +758,7 @@ tbody tr:hover{
                                     <option>Safety</option>
                                 </select>
                             </div>
-                            <div class="form-grid full">
+                            <div class="form-group full">
                                 <label>Subject <span class="req">*</span></label>
                                 <input type="text" id="subject" placeholder="e.g. Computer not starting" required maxlength="150">
                             </div>
