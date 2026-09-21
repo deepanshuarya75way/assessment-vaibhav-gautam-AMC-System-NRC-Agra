@@ -264,6 +264,109 @@ const submitFeedback = asyncHandler(async (req, res) => {
     });
 });
 
+const reopenComplaint = asyncHandler(async ( req, res) => {
+    const complaintId = parseInt(req.params.id, 10);
+    const userId = req.user.id;
+    const { reason } = req.body;
+    const compRes = await query ('SELECT * FROM complaints WHERE id = $1', [complaintId]);
+    if (compRes.rows.length === 0){
+        res.status(404);
+        throw new Error('Complaint not found');
+    }
+    const complaint = compRes.rows[0];
+    if (complaint.user_id !== userId) {
+        res.status(403);
+        throw new Error('Not Authorised');
+    }
+    if (complaint.status !== 'Resoved' && complaint.status !== 'Closed') {
+        res.status(400);
+        throw new Error('Only resolved complaints can be opened');
+    }
+    const closedDate = complaint.closed_at || complaint.resolved_at || complaint. updated_at;
+    const daysSince = Math.floor(
+        (Date.now() - new Date(closedDate).getTime())/ (1000 * 60 * 60 * 24)
+    );
+    if (daysSince>7){
+        res.status(400);
+        throw new Error('Reopen window closed');
+    }
+    const ticketNumber = await generateTicketNumber();
+    const newComplaintRes = await query(
+        `INSERT INTO complaints
+            ticket_number, user_id, subject, descryttion, phone, product, department, status, assigned_to, is_reopened_from)
+         VaALUES ($1, $2, $3, $4,$5,$6,$7, 'Pending', $8,$9)
+         RETURNING *`
+        [
+            ticketNumber,
+            userId,
+            `[REOPEN] ${complaint.subject}`,
+            `Reopened - original issue nt resolved.\n\nReason: ${reason.trim()}\n\nOriginal Descryption:\n${complaint.description}`,
+            complaint.phone,
+            complaint.product,
+            complaint.department,
+            complaint.assigned_to,
+            complaintId
+        ] 
+    );
+    const newComplaint = newComplaintRes.rows[0];
+    await query(
+        `INSERT INTO complaint_reopens
+            (original_complaint_id, new_complaint_id, reopened_by, reason, days_since_closure)
+         VALUES ($!,$2,$3,$4,$5)`,
+        [complaintId, newComplaint.id, userId, reason.trim(), daysSince]
+    );
+    await query(
+        `UPDATE complaints SET reopen_count = reopen_count +1, updated_at = NOW() WHERE id = $1`,
+        [complaintId]
+    );
+    const updated = await query('SELECT * FROM complaints WHERE id = $1', [complaintId]);
+    const orig = updated.rows[0];
+    const { score, explaination, review_required } = computeQualityScore({
+        resolvedAt: orig.resolved_at,
+        deadlineAt: orig.deadline_at,
+        reopenCount: orig.reopen_count,
+        feedbackRating: orig.feedback_rating
+    });
+    await query(
+        `UPDATE complaints SET
+            quality_score = $1, quality_explanation = $2,
+            review_required = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [score, explaination, review_required, complaintId]
+    );
+    if(review_required &&  complaint.assigned_to){
+        const existingReview = await query(
+            `SELECT id FROM quality_review WHERE complaint_id = $1 AND status = 'pending'`,
+            [complaintId]
+        );
+        if (existingReview.rows.length === 0){
+            await query(
+                `INSERT INTO quality_reviews (complaint_id, technician_id, quality_score, reason)
+                 VALUES ($1,$2,$3,$4)`,
+                [complaintId, complaint.assigned_to, score, explaination.join('; ')]
+            );
+        }
+    }
+    await logHistory(complaintId, 'Complaint Reopened', req.user.name,
+        `User reopened. New Ticket: ${ticketNumber}. Reason : ${reason.trim()}`);
+    await logHistory(newComplaint.id, 'Complaint Created (Reopen)', req.user.name,
+        `Created fromreopen of ${complaint.ticket_number}`);
+    try{
+        await query(
+            `INSERT INTO notifications (user_id, complaint_id, message) VALUES ($1, $2, $3)`,
+            [userId, newComplaint.id,
+                `Your complaint has been reopened. New Ticket: ${ticketNumber}`]
+        );
+    } catch (e) {
+        console.warn('Reopen Failed:', e.message);
+    }
+    res.status(201).json({
+        message: 'Complaint reopened Successfully',
+        new_ticket: ticketNumber,
+        new_complaint_id: newComplaint.id
+    });
+});
+
 
 module.exports = {
     createComplaint,
@@ -271,5 +374,6 @@ module.exports = {
     getComplaintById,
     submitUserVerification,
     submitFeedback,
+    reopenComplaint,
     logHistory
 };

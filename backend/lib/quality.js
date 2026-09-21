@@ -28,3 +28,5 @@ function computeQualityScore( { resolvedAt, deadlineAt, reopenCount, feedbackRat
 }
 
 module.exports = { computeQualityScore }; 
+
+
