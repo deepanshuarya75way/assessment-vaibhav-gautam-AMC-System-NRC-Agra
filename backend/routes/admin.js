@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { pool } = require('../config/db');
+const { getQualityDashboard, resolveReview } = require('../controllers/adminQualityController');
 
 // ─── Helper: insert complaint history row ─────────────────────────────────────
 async function logHistory(complaintId, action, performedBy, remarks = null) {
@@ -338,5 +339,8 @@ router.put('/attendance/:id', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to update attendance', error: err.message });
     }
 });
+
+router.get('/quality', protect, authorize('admin'), getQualityDashboard);
+router.patch('/quality/reviews/:id', protect, authorize('admin'), resolveReview);
 
 module.exports = router;
