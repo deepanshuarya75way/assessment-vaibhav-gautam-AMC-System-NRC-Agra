@@ -132,6 +132,69 @@ const connectDB = async () => {
     }
 };
 
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS complaint_reopens (
+        id SERIAL PRIMARY KEY,
+        original_complaint_id INTEGER NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+        new_complaint_id INTEGER NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+        reopened_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        reason TEXT NOT NULL,
+        days_since_closure INTEGER NOT NULL,
+        reopened_at TIMESTAMP WITH TIME ZONE DEFAULT CURRNT_TIMESTAMP
+    );
+`)
+console.log('Complaint reopened table checked/created.');
+
+
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS complaint_feedback (
+        id SERIAL PRIMARY KEY,
+        complaint_id INTEGER NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCEs users(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        submitted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(complaint_id)
+    );
+`)
+console.log('Complaint feedback table checked/created.');
+
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS quality_reviews(
+        id SERIAL PRIMARY KEY,
+        complaint_id INTEGER NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+        technician_id INTEGER NOT NULL REFERENCES technicians(id) ON DELETE CASCADE
+        quality_score INTEGER NOT NULL,
+        reason TEXT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        reviewed_by INTEGER REFERENCES admins(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMP WITH TIME XONE,
+        admin_notes TEXT,
+        created_At TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+`)
+console.log('Quality reviews table checked/created.')
+
+await pool.query(`
+    ALTER TABLE compllaints
+        ADD COLUMN IF NOT EXISTS quality_score INTEGER,
+        ADD COLUMN IF NOT EXISTS quality_explanation TEXT[],
+        ADD COLUMN IF NOT EXISTS reopen_count INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS feedback_rating INTEGER,
+        ADD COLUMN IF NOT EXISTS review_required BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS is_reopened_from INTEGER REFERENCES complaints(id),
+        ADD COLUMN IF NOT EXISTS technician_resolution TEXT,
+        ADD COLUMN IF NOT EXISTS tech_remarks TEXT,
+        ADD COLUMN IF NOT EXISTS admin_closing_remarks TEXT,
+        ADD COLUMN IF NOT EXISTS user_verification_response BOOLEAN,
+        ADD COLUMN IF NOT EXISTS user_verification_remarls TEXT,
+        ADD COLUMN IF NOT EXISTS user_verified_at TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS verified_by_user BOOLEAN,
+    `);
+    console.log('Complaints table altered withquality columns')
+
 module.exports = {
     pool,
     query: (text, params) => pool.query(text, params),

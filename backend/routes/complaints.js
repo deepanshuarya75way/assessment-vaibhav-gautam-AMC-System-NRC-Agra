@@ -7,7 +7,9 @@ const {
     createComplaint,
     getUserComplaints,
     getComplaintById,
-    submitUserVerification
+    submitUserVerification,
+    submitFeedback,
+    reopenComplaint
 } = require('../controllers/complaintsController');
 
 // Create Complaint
@@ -22,4 +24,6 @@ router.put('/:id/verify', protect, submitUserVerification);
 // Track Complaint
 router.get('/track/:id', getComplaintById);
 
+router.post('/:id/feedback', protect, submitFeedback);
+router.post('/:id/reopen', protect, reopenComplaint);
 module.exports = router;

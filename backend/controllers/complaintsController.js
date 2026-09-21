@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const { query } = require('../config/db');
+const { computeQualityScore } = require('../quality');
 
 const VALID_PRODUCTS = ['PC', 'UPS', 'Printer', 'Miscellaneous'];
 
@@ -184,10 +185,91 @@ const submitUserVerification = asyncHandler(async (req, res) => {
     });
 });
 
+const submitFeedback = asyncHandler(async (req, res) => {
+    const complainId = parseInt(req.params.id, 10);
+    const userId = req.user.id;
+    const { rating, comment } = req.body;
+    if(!rating || rating < 1 || rating > 5) {
+        res.status(400);
+        throw new Error('Rating must be between 1 and 5');
+    }
+    const compRes = await query ('SELECT * FROM complaints WHERE ID = $1', [complaintId]);
+    if (compRes.rows.length === 0){
+        res.status(404);
+        throw new Error ('Complaint not found');
+    }
+    const complaint = compRes.rows[0];
+    if(complaint.user_id !== userId) {
+        res.status(403);
+        throw new Error ('Not Authorized');
+    }
+    if (complaint.status !== 'Resolved' && complaint.status !== 'Closed') {
+        res.status(400);
+        throw new Error('Feedback onlyallowed after complaint is resolved or closed');
+    }
+    const closedDate = complaint.closed_at || complaint.resolved_at || complaint.updated_at;
+    const daysSince = (Date.now() - new Date(closedDate).getTime()) / (1000 * 60 * 60 * 24);
+    if(daysSince > 7){
+        res.status(400);
+        throw new Error('Feedback window closed. You can only give feedback within 7 days of closure');
+    }
+    const existing = await query(
+        'SELECT id FROM complaint_feedback WHERE complaint_id = $1', [complaintId]
+    );
+    if (existing.rows.length > 0) {
+        res.status(400);
+        throw new Error('You have already submitted feedback');
+    }
+    await query(
+        `INSERT INTO complaint_feedback ( complaint_id, user_id, rating, comment)
+         VALUES ($1,$2,$3,$4)`,
+        [complaintId, userId, rating, comment || null]
+    );
+    const { score, explanation, review_required } = computeQualityScore({
+        resolvedAt: complaint.resolved_at,
+        deadlineAr: complaint.deadline_at,
+        reopenCount: complaint.reopen_count || 0,
+        feedbackRating : rating
+    });
+    await query(
+        `UPDATE complaints SET
+           quality_score = $1,
+           quality_explanation = $2,
+           feedback_rating = $3,
+           review_required = $4,
+           updated_at = NOW()
+        WHERE id = $5`,
+        [score, explanation, rating, review_required, complainId]
+    );
+    if (review_required && complaint.assigned_to) {
+        const existingReview = await query(
+            `SELECT id FROM quality_review WHERE complaint_id = $1 AND status = 'pending'`,
+            [complainId]
+        );
+        if (existingReview.rows.length === 0) {
+            await query(
+                `INSERT INTO quality_review (complaint_id), technician_id, quality_score, reason)
+                 VALUES ($1,$2,$3,$4)`,
+                [complainId, complaint.assigned_to, score, explanation.join('; ')]
+            );
+        }
+    }
+    await logHistory(complaintId, 'Feedback Submitted', req.user.name,
+        `User rated ${rating}/5. Quality Score: ${score}/100`);
+    res.json({
+        message: 'Feedback Submitted',
+        quality_score: score,
+        explanation,
+        review_required
+    });
+});
+
+
 module.exports = {
     createComplaint,
     getUserComplaints,
     getComplaintById,
     submitUserVerification,
+    submitFeedback,
     logHistory
 };
