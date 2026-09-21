@@ -320,6 +320,107 @@ async function filterComplaints(asset) {
     } catch (err) { renderTable({ error: true, message: 'Filter failed.' }); }
 }
 
+function initFeedbackSection(complaint) {
+    currentComplaintId = complaint.id;
+    const status = (complaint.status || '').toLowerCase();
+
+    if (status === 'resolved' || status === 'closed') {
+        const closedDate = complaint.closed_at || complaint.resolved_at || complaint.updated_at;
+        const daysSince = Math.floor((Date.now() - new Date(closedDate).getTime()) / (1000 * 60 * 60 * 24));
+        const daysLeft = 7 - daysSince;
+
+        if (daysLeft > 0 && !complaint.feedback_rating) {
+            document.getElementById('feedbackSection').style.display = 'block';
+            document.getElementById('feedbackDaysLeft').textContent =
+                `${daysLeft} day(s) left to give feedback`;
+        }
+
+        if (daysLeft > 0 && !complaint.feedback_rating) {
+            document.getElementById('reopenSection').style.display = 'block';
+        }
+    }
+
+    // Star rating click handler
+    document.querySelectorAll('.star').forEach(star => {
+        star.addEventListener('click', () => {
+            selectedRating = parseInt(star.dataset.val);
+            document.querySelectorAll('.star').forEach((s, i) => {
+                s.textContent = i < selectedRating ? '★' : '☆';
+            });
+        });
+    });
+}
+
+async function submitFeedback() {
+    if (!selectedRating) {
+        document.getElementById('feedbackMsg').textContent = 'Please select a star rating.';
+        document.getElementById('feedbackMsg').style.color = '#DC2626';
+        return;
+    }
+
+    const token = localStorage.getItem('token'); // adjust to your auth storage
+    const comment = document.getElementById('feedbackComment').value.trim();
+
+    try {
+        const res = await fetch(`/api/complaints/${currentComplaintId}/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ rating: selectedRating, comment })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById('feedbackMsg').style.color = '#15803D';
+            document.getElementById('feedbackMsg').textContent =
+                `Feedback submitted! Quality Score: ${data.quality_score}/100`;
+            document.getElementById('feedbackSection').style.pointerEvents = 'none';
+            document.getElementById('feedbackSection').style.opacity = '0.6';
+        } else {
+            document.getElementById('feedbackMsg').style.color = '#DC2626';
+            document.getElementById('feedbackMsg').textContent = data.message;
+        }
+    } catch (e) {
+        document.getElementById('feedbackMsg').textContent = 'Network error.';
+    }
+}
+
+async function submitReopen() {
+    const reason = document.getElementById('reopenReason').value.trim();
+    if (reason.length < 10) {
+        document.getElementById('reopenMsg').textContent = 'Please provide more detail (min 10 characters).';
+        document.getElementById('reopenMsg').style.color = '#DC2626';
+        return;
+    }
+
+    const token = localStorage.getItem('token');
+
+    try {
+        const res = await fetch(`/api/complaints/${currentComplaintId}/reopen`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ reason })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            document.getElementById('reopenMsg').style.color = '#15803D';
+            document.getElementById('reopenMsg').textContent =
+                `Reopened! New ticket: ${data.new_ticket}`;
+            document.getElementById('reopenSection').style.pointerEvents = 'none';
+            document.getElementById('reopenSection').style.opacity = '0.6';
+        } else {
+            document.getElementById('reopenMsg').style.color = '#DC2626';
+            document.getElementById('reopenMsg').textContent = data.message;
+        }
+    } catch (e) {
+        document.getElementById('reopenMsg').textContent = 'Network error.';
+    }
+}
+
 // ── Attendance ────────────────────────────────────────────────────────────────
 async function loadAttendance() {
     try {

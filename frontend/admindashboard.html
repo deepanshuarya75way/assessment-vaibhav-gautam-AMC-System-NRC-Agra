@@ -512,7 +512,40 @@ select{
 </head>
 
 <body>
+<!-- Feedback & Reopen Section -->
+<div id="feedbackSection" style="display:none; margin-top:20px; padding:16px; background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px;">
+    <h4 style="margin:0 0 12px; font-size:0.9rem;">Rate this Resolution</h4>
+    <div id="feedbackDaysLeft" style="font-size:0.75rem; color:#64748B; margin-bottom:10px;"></div>
 
+    <!-- Star rating -->
+    <div style="display:flex; gap:8px; margin-bottom:12px;" id="starRating">
+        <span class="star" data-val="1" style="font-size:1.5rem; cursor:pointer;">☆</span>
+        <span class="star" data-val="2" style="font-size:1.5rem; cursor:pointer;">☆</span>
+        <span class="star" data-val="3" style="font-size:1.5rem; cursor:pointer;">☆</span>
+        <span class="star" data-val="4" style="font-size:1.5rem; cursor:pointer;">☆</span>
+        <span class="star" data-val="5" style="font-size:1.5rem; cursor:pointer;">☆</span>
+    </div>
+
+    <textarea id="feedbackComment" placeholder="Optional comment..." rows="3"
+        style="width:100%; padding:8px; border:1px solid #D1D5DB; border-radius:6px; margin-bottom:10px; box-sizing:border-box;"></textarea>
+
+    <button onclick="submitFeedback()" style="padding:8px 16px; background:#B45309; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
+        Submit Feedback
+    </button>
+
+    <div id="feedbackMsg" style="margin-top:8px; font-size:0.8125rem;"></div>
+</div>
+
+<!-- Reopen Section -->
+<div id="reopenSection" style="display:none; margin-top:12px; padding:16px; background:#FEF2F2; border:1px solid #FECACA; border-radius:8px;">
+    <h4 style="margin:0 0 10px; font-size:0.9rem; color:#DC2626;">Issue Not Resolved?</h4>
+    <textarea id="reopenReason" placeholder="Describe why the issue is not resolved (min 10 characters)..." rows="3"
+        style="width:100%; padding:8px; border:1px solid #FECACA; border-radius:6px; margin-bottom:10px; box-sizing:border-box;"></textarea>
+    <button onclick="submitReopen()" style="padding:8px 16px; background:#DC2626; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
+        Reopen Complaint
+    </button>
+    <div id="reopenMsg" style="margin-top:8px; font-size:0.8125rem;"></div>
+</div>
 <div class="header">
     
 
