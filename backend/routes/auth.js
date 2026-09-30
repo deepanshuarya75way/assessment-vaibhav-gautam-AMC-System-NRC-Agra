@@ -1,18 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const { loginUser, takeoverSession } = require('../controllers/authController');
+const { protect } = require('../middleware/authMiddleware'); // Ensure protect middleware is imported
 
-const {
-    registerUser,
-    loginUser,
-    forgotPassword,
-    resetPassword
-} = require('../controllers/authController');
-
-router.post('/register', registerUser);
+// Existing routes
 router.post('/login', loginUser);
+router.post('/takeover', takeoverSession);
 
-// Forgot / Reset Password
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+// ADD THIS NEW ROUTE HERE:
+router.get('/verify-session', protect, (req, res) => {
+    res.json({ success: true, message: 'Session is active.' });
+});
 
 module.exports = router;

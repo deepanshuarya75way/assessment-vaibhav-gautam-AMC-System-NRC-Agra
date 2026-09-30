@@ -4,6 +4,7 @@ const jwt          = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
 const nodemailer   = require('nodemailer');
 const { query }    = require('../config/db');
+const JWT_SECRET = process.env.JWT_SECRET || 'default_fallback_jwt_secret_key_123';
 
 let transporter = null;
 
@@ -318,42 +319,221 @@ const registerUser = asyncHandler(async (req, res) => {
 // LOGIN
 // ═══════════════════════════════════════════════════════════════════════════════
 const loginUser = asyncHandler(async (req, res) => {
-    const { email, password, role } = req.body;
+    const { email, password } = req.body;
 
     if (!email || !password) {
         res.status(400);
-        throw new Error('Please enter both email and password.');
+        throw new Error('Email and password are required.');
     }
 
-    const rolesToCheck = ROLE_TABLES[role] ? [role] : Object.keys(ROLE_TABLES);
-
-    for (const r of rolesToCheck) {
-        const tableName  = ROLE_TABLES[r];
-        const userResult = await query(
-            `SELECT id, name, email, password_hash FROM ${tableName} WHERE email = $1`,
-            [email.trim().toLowerCase()]
-        );
-        const user = userResult.rows[0];
-
-        if (user && (await bcrypt.compare(password, user.password_hash))) {
-            return res.json({
-                message: 'Logged in successfully!',
-                token:   generateToken(user.id, r, user.name),
-                user: {
-                    id:    user.id,
-                    name:  user.name,
-                    email: user.email,
-                    role:  r,
-                },
-            });
-        }
-    }
-
-    res.status(400);
-    throw new Error(
-        'Invalid email or password. Please verify your credentials.'
+    const result = await query(
+        'SELECT * FROM users WHERE email = $1',
+        [email]
     );
+
+    if (result.rows.length === 0) {
+        res.status(401);
+        throw new Error('Invalid email or password.');
+    }
+
+    const user = result.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (!isMatch) {
+        res.status(401);
+        throw new Error('Invalid email or password.');
+    }
+
+    // Get device info from request
+    const UAParser = require('ua-parser-js');
+    const ua = new UAParser(req.headers['user-agent']);
+    const device = ua.getDevice().type || 'Desktop';
+    const browser = `${ua.getBrowser().name || 'Unknown'} ${ua.getBrowser().version || ''}`.trim();
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
+
+    // Check existing session
+    const existingSession = await query(
+        `SELECT * FROM user_sessions WHERE user_id = $1`,
+        [user.id]
+    );
+
+    if (existingSession.rows.length > 0) {
+        const existing = existingSession.rows[0];
+
+        // Return existing session info — frontend will show takeover prompt
+        return res.status(200).json({
+            requiresTakeover: true,
+            existingSession: {
+                device: existing.device,
+                browser: existing.browser,
+                ip_address: existing.ip_address,
+                last_active: existing.last_active
+            },
+            // Send a temp token so frontend can call /takeover
+            takeoverToken: Buffer.from(`${user.id}:${email}:${password}`).toString('base64')
+        });
+    }
+
+    // No existing session — log in normally
+    const JWT_SECRET = process.env.JWT_SECRET || 'default_fallback_jwt_secret_key_123';
+    const token = jwt.sign(
+        { id: user.id, role: user.role || 'user' },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+    );
+
+    await query('DELETE FROM user_sessions WHERE user_id = $1', [user.id]);
+    
+
+    // Store session
+    await query(
+        `INSERT INTO user_sessions (user_id, token, device, browser, ip_address)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, token, device, browser, ip]
+    );
+
+    res.json({
+        requiresTakeover: false,
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: 'user' }
+    });
 });
+const takeoverSession = asyncHandler(async (req, res) => {
+    const { takeoverToken, action } = req.body;
+
+    if (!takeoverToken || !action) {
+        return res.status(400).json({ success: false, message: 'takeoverToken and action are required.' });
+    }
+
+    if (!['takeover', 'cancel'].includes(action)) {
+        return res.status(400).json({ success: false, message: 'action must be "takeover" or "cancel".' });
+    }
+
+    if (action === 'cancel') {
+        return res.json({ success: true, message: 'Login cancelled. Existing session remains active.' });
+    }
+
+    // Decode temp token
+    let userId, email, password;
+    try {
+        const decoded = Buffer.from(takeoverToken, 'base64').toString('utf-8');
+        [userId, email, password] = decoded.split(':');
+        userId = parseInt(userId, 10);
+    } catch {
+        return res.status(400).json({ success: false, message: 'Invalid takeover token.' });
+    }
+
+    if (!userId || isNaN(userId)) {
+        return res.status(400).json({ success: false, message: 'Invalid user ID in takeover token.' });
+    }
+
+    // Verify user
+    const result = await query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    const user = result.rows[0];
+
+    // Get device info
+    const UAParser = require('ua-parser-js');
+    const ua = new UAParser(req.headers['user-agent']);
+    const device = ua.getDevice().type || 'Desktop';
+    const browser = `${ua.getBrowser().name || 'Unknown'} ${ua.getBrowser().version || ''}`.trim();
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
+
+    // Invalidate old session
+    await query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
+
+    // Create new JWT
+    const JWT_SECRET = process.env.JWT_SECRET || 'default_fallback_jwt_secret_key_123';
+    const token = jwt.sign(
+        { id: user.id, role: user.role || 'user' },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+    );
+
+    // Store new session
+    await query(
+        `INSERT INTO user_sessions (user_id, token, device, browser, ip_address) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, token, device, browser, ip]
+    );
+
+    return res.json({
+        success: true,
+        message: 'Session taken over successfully. Previous session invalidated.',
+        token: token,
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role || 'user'
+        }
+    });
+});
+
+module.exports = {
+    // Keep your existing controller exports here, including takeoverSession
+    takeoverSession
+};
+
+
+exports.takeoverSession = asyncHandler(async (req, res) => {
+    const { takeoverToken, action } = req.body;
+
+    if (action === 'cancel') {
+        return res.json({ success: true, message: 'Takeover canceled' });
+    }
+
+    if (!takeoverToken) {
+        return res.status(400).json({ success: false, message: 'Takeover token missing' });
+    }
+
+    // Safely decode base64 token
+    const decoded = Buffer.from(takeoverToken, 'base64').toString('utf-8');
+    const [userId, email, password] = decoded.split(':');
+
+    if (!userId) {
+        return res.status(400).json({ success: false, message: 'Invalid token structure' });
+    }
+
+    // Delete existing session rows for this user
+    await query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
+
+    // Sign new JWT token
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key_123';
+    
+    // Fetch user details
+    const userResult = await query('SELECT id, name, email, role FROM users WHERE id = $1', [userId]);
+    const user = userResult.rows[0];
+
+    const token = jwt.sign(
+        { id: user.id, role: user.role || 'user' },
+        JWT_SECRET,
+        { expiresIn: '8h' }
+    );
+
+    // Get client info
+    const UAParser = require('ua-parser-js');
+    const ua = new UAParser(req.headers['user-agent']);
+    const device = ua.getDevice().type || 'Desktop';
+    const browser = `${ua.getBrowser().name || 'Unknown'} ${ua.getBrowser().version || ''}`.trim();
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
+
+    // Insert fresh session row
+    await query(
+        `INSERT INTO user_sessions (user_id, token, device, browser, ip_address) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, token, device, browser, ip]
+    );
+
+    return res.json({
+        success: true,
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role || 'user' }
+    });
+});
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FORGOT PASSWORD
@@ -474,6 +654,8 @@ const resetPassword = asyncHandler(async (req, res) => {
     res.json({ message: 'Password reset successfully! You can now log in with your new password.' });
 });
 
+
+
 // ─── Email template: Password Reset ──────────────────────────────────────────
 function buildPasswordResetEmail(name, resetLink) {
     const year = new Date().getFullYear();
@@ -558,4 +740,4 @@ function buildPasswordResetEmail(name, resetLink) {
 </html>`;
 }
 
-module.exports = { registerUser, loginUser, forgotPassword, resetPassword };
+module.exports = { registerUser, loginUser, forgotPassword, resetPassword, loginUser, takeoverSession};

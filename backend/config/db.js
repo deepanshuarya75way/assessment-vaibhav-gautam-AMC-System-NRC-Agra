@@ -10,7 +10,7 @@ const pool = new Pool({
     host: "localhost",
     port: 5432,
     user: "postgres",
-    password: "1234",
+    password: "postgres",
     database: "railway_db",
     ssl: false
 });
@@ -40,11 +40,13 @@ const connectDB = async () => {
                 name VARCHAR(255) NOT NULL,
                 email VARCHAR(255) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL,
+                phone VARCHAR(20) NOT NULL,
                 reset_password_token VARCHAR(255),
                 reset_password_expires TIMESTAMP WITH TIME ZONE,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);`);
         console.log('Users table checked/created.');
 
         // --- TABLE 3: TECHNICIANS ---
@@ -60,6 +62,20 @@ const connectDB = async () => {
             );
         `);
         console.log('Technicians table checked/created.');
+        
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS user_sessions (
+               id SERIAL PRIMARY KEY,
+               user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+               token TEXT NOT NULL,
+               device VARCHAR(255),
+               browser VARCHAR(255),
+               ip_address VARCHAR(100),
+               last_active TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+               created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        console.log('User sessions table checked/created');
 
         // --- Sequence used to auto-generate ticket numbers like TCKT-000001 ---
         await pool.query(`CREATE SEQUENCE IF NOT EXISTS ticket_number_seq START 1;`);
@@ -76,9 +92,6 @@ const connectDB = async () => {
                 subject VARCHAR(255) NOT NULL,
                 description TEXT NOT NULL,
                 status VARCHAR(50) DEFAULT 'Pending',
-                assigned_to INTEGER REFERENCES technicians(id) ON DELETE SET NULL,
-                resolution_notes TEXT,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `);

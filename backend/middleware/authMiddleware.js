@@ -29,6 +29,23 @@ const protect = asyncHandler(async (req, res, next) => {
                 return res.status(401).json({ message: 'Not authorized, user not found.' });
             }
 
+            // ONLY CHECK SESSIONS FOR USER AND NOT FOR TECHNICIANS OR ADMINS
+            if (decoded.role === 'user') {
+                const sessionRes = await query(
+                    `SELECT * FROM user_sessions WHERE user_id = $1 AND token = $2`,
+                    [decoded.id, token]
+                );
+                 if (sessionRes.rows.length === 0) {
+                    return res.status(401).json({
+                        message: 'Sessions invalidated. Please log in again.'
+                    });
+                }
+                await query(
+                    `UPDATE user_sessions SET last_active = NOW() WHERE user_id = $1 AND token = $2`,
+                    [decoded.id, token]
+                );
+            }
+
             req.user = {
                 id: user.id,
                 name: user.name,
