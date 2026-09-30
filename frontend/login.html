@@ -351,6 +351,8 @@ body::before{
 
 </div>
 
+</div>
+
 <script>
 // Pre-select role from URL param (e.g. ?role=technician)
 const urlParams = new URLSearchParams(window.location.search);
@@ -372,6 +374,90 @@ roleBtns.forEach(btn => {
     });
 });
 
+let currentTakeoverToken = null;
+
+function showTakeoverModal(existingSession, takeoverToken) {
+    if(!existingSession) return;
+
+    currentTakeoverToken = takeoverToken;
+    const sessionInfoEl = document.getElementById('existingSessionInfo');
+    if (sessionInfoEl) {
+        sessionInfoEl.innerHTML = `
+        <div style="display:grid; gap:6px;">
+            <div><strong>Device:</strong> ${existingSession.device}</div>
+            <div><strong>Browser:</strong> ${existingSession.browser}</div>
+            <div><strong>IP Address:</strong> ${existingSession.ip_address}</div>
+            <div><strong>Last Active:</strong> ${new Date(existingSession.last_active).toLocaleString()}</div>
+        </div>
+    `;
+    const modal = document.getElementById('takeoverModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+}
+
+
+
+
+async function handleTakeover(action) {
+    if (action === 'cancel') {
+        const modal = document.getElementById('takeoverModal');
+        if (modal) modal.style.display = 'none';
+        return;
+    }
+
+    if (!currentTakeoverToken) {
+        alert('Session token missing. Please try logging in again.');
+        return;
+    }
+
+    try {
+        const apiUrl = window.location.port === '3000' 
+            ? 'http://localhost:5000/api/auth/takeover' 
+            : '/api/auth/takeover';
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                takeoverToken: currentTakeoverToken, 
+                action: action 
+            })
+        });
+
+        const data = await response.json();
+        console.log('Takeover Response Data:', data);
+
+        // Check if token exists in response (regardless of data.success property)
+        if (response.ok && (data.token || data.success)) {
+            if (data.token) localStorage.setItem('token', data.token);
+            if (data.user) localStorage.setItem('user', JSON.stringify(data.user));
+
+            // Hide the modal immediately
+            const modal = document.getElementById('takeoverModal');
+            if (modal) modal.style.display = 'none';
+
+            // Determine route based on user role
+            const userRole = (data.user?.role || 'user').toLowerCase();
+            
+            if (userRole === 'admin') {
+                window.location.replace('admindashboard.html');
+            } else if (userRole === 'technician') {
+                window.location.replace('technicianDashboard.html');
+            } else {
+                window.location.replace('userDashboard.html');
+            }
+        } else {
+            alert(data.message || 'Session takeover failed.');
+        }
+    } catch (err) {
+        console.error('Takeover Error:', err);
+        alert('An error occurred during session takeover: ' + err.message);
+    }
+}
+
+
 // Navigate to signup preserving the currently selected role
 document.getElementById("createAccountLink").addEventListener("click", (e) => {
     e.preventDefault();
@@ -383,5 +469,35 @@ document.getElementById("createAccountLink").addEventListener("click", (e) => {
 <script src="./js/common.js"></script>
 <script src="./js/login.js"></script>
 
+<!-- Session Takeover Modal -->
+<div id="takeoverModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:999; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:10px; padding:24px; max-width:420px; width:100%; margin:16px;">
+        <h3 style="margin:0 0 8px; font-size:1rem; color:#0F172A;">Active Session Detected</h3>
+        <p style="margin:0 0 16px; font-size:0.8125rem; color:#64748B;">
+            Your account is already logged in on another device.
+        </p>
+
+        <div id="existingSessionInfo" style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:14px; margin-bottom:20px; font-size:0.8125rem;">
+        </div>
+
+        <p style="margin:0 0 16px; font-size:0.8125rem; color:#374151;">
+            Do you want to take over the session? The other device will be logged out.
+        </p>
+
+        <div style="display:flex; gap:10px;">
+            <button onclick="handleTakeover('cancel')"
+                style="flex:1; padding:10px; background:#fff; color:#374151; border:1px solid #D1D5DB; border-radius:6px; cursor:pointer; font-weight:600;">
+                Cancel
+            </button>
+            <button onclick="handleTakeover('takeover')"
+                style="flex:1; padding:10px; background:#DC2626; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
+                Take Over Session
+            </button>
+        </div>
+    </div>
+
 </body>
+
+
 </html>
+

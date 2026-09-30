@@ -90,3 +90,98 @@ async function authenticatedFetch(url, options = {}, messageElementId = 'message
 
     return response;
 }
+
+/**
+ * Global API Fetch Wrapper
+ * Automatically attaches JWT bearer tokens to outbound requests and handles 401 Unauthorized errors.
+ */
+async function apiFetch(url, options = {}) {
+    const token = localStorage.getItem('token');
+
+    // Merge existing headers with Authorization & Content-Type
+    options.headers = {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+    };
+
+    try {
+        const response = await fetch(url, options);
+
+        // If session was invalidated in PostgreSQL (e.g., taken over on another device)
+        if (response.status === 401) {
+            alert('Your session has been terminated because your account logged in on another device.');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'login.html';
+            return null;
+        }
+
+        return response;
+    } catch (error) {
+        console.error('API Request Network Error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Global Session Heartbeat
+ * Periodically verifies if the current token is still valid in the database.
+ * Kicks off active dashboard users within 10 seconds of session takeover.
+ */
+function startSessionHeartbeat(intervalMs = 10000) {
+    setInterval(async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        try {
+            // Point explicitly to backend port 5000 if running frontend on port 3000
+            const apiUrl = window.location.port === '3000' 
+                ? 'http://localhost:5000/api/auth/verify-session' 
+                : '/api/auth/verify-session';
+
+            const response = await fetch(apiUrl, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.status === 401) {
+                alert('Your session was taken over by another device.');
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = 'login.html';
+            }
+        } catch (err) {
+            console.error('Session Heartbeat Check Failed:', err);
+        }
+    }, intervalMs);
+}
+
+/**
+ * Utility to get current authenticated user data
+ */
+function getCurrentUser() {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return null;
+    try {
+        return JSON.parse(userStr);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Global Logout Action
+ */
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = 'login.html';
+}
+
+// Automatically start session heartbeat check on dashboard pages
+document.addEventListener('DOMContentLoaded', () => {
+    if (!window.location.pathname.endsWith('login.html')) {
+        startSessionHeartbeat();
+    }
+});

@@ -11,6 +11,11 @@ const ROLE_TABLES = {
 // Checks the token is valid, then loads the matching user from the correct table
 const protect = asyncHandler(async (req, res, next) => {
     let token;
+    const sessionCheck = await query('SELECT * FROM user_sessions WHERE token = $1', [token]);
+    if(sessionsCheck.rows.length === 0) {
+        res.status(401);
+        throw new Error('Session terminated due to takover on another device');
+    }
 
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {

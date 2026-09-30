@@ -50,64 +50,82 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (loginForm) {
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value.trim();
-            const password = passwordInput.value.trim();
-            const role = document.getElementById('role').value;
-
-            if (!email || !password) {
-                showMessage('loginMessage', 'Please enter both email and password.', 'error');
-                return;
-            }
-
-            // Client-side hard check on submission
-            const isPasswordValid = validatePasswordUI(password);
-            if (!isPasswordValid) {
-                showMessage('loginMessage', 'Password does not meet the specified complexity guidelines.', 'error');
-                return;
-            }
-
-            try {
-                // --- CORRECTED API ENDPOINT HERE ---
-                const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ email, password, role })
-                });
-
-                const data = await response.json(); // Always try to parse JSON
-
-                if (response.ok) { // Check if response status is 2xx
-                    showMessage('loginMessage', data.message || 'Login successful!', 'success');
-                    // Store user data and token
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user)); // Store full user object
-                    localStorage.setItem('userName', data.user.name); // Store name directly
-                    localStorage.setItem('userRole', data.user.role); // Store role directly
-
-                    // Redirect based on role
-                    if (data.user.role === 'admin') {
-                        window.location.href = 'admindashboard.html';
-                    }
-                    else if (data.user.role === 'technician') {
-                        window.location.href = 'technicianDashboard.html';
-                    }
-                    else {
-                        window.location.href = 'userDashboard.html';
-                    }
-
-                } else {
-                    // Handle server-side errors (e.g., 400 Bad Request, 500 Internal Server Error)
-                    showMessage('loginMessage', data.message || 'Login failed. Invalid credentials.', 'error');
-                }
-            } catch (error) {
-                console.error('Error during login fetch:', error);
-                // Network error (e.g., server down, no internet)
-                showMessage('loginMessage', 'Network error during login. Please ensure the server is running and try again.', 'error');
-            }
+        async function loginUser(email, password, role) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, role })
         });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            // Handle server error message display
+            const errorMsg = data.message || 'Login failed. Invalid credentials.';
+            showMessage('loginMessage', errorMsg, 'error');
+            return;
+        }
+
+        // Active session detected -> show session takeover modal
+        if (data.requiresTakeover) {
+            if (typeof showTakeoverModal === 'function') {
+                showTakeoverModal(data.existingSession, data.takeoverToken);
+            } else {
+                console.warn('Takeover requested, but showTakeoverModal() is missing.');
+            }
+            return;
+        }
+
+        // Standard Login Successful -> Save Auth Tokens
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        if (data.user?.name) localStorage.setItem('userName', data.user.name);
+        if (data.user?.role) localStorage.setItem('userRole', data.user.role);
+
+        showMessage('loginMessage', data.message || 'Login successful!', 'success');
+
+        // Role-based Redirection
+        const userRole = data.user?.role || role;
+        if (userRole === 'admin') {
+            window.location.href = 'admindashboard.html';
+        } else if (userRole === 'technician') {
+            window.location.href = 'technicianDashboard.html';
+        } else {
+            window.location.href = 'userDashboard.html';
+        }
+
+    } catch (error) {
+        console.error('Error during login fetch:', error);
+        showMessage('loginMessage', 'Network error during login. Please ensure the server is running.', 'error');
+    }
+}
+
+// Form Submission Event Listener
+if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById('email').value.trim();
+        const password = passwordInput.value.trim();
+        const role = document.getElementById('role').value;
+
+        if (!email || !password) {
+            showMessage('loginMessage', 'Please enter both email and password.', 'error');
+            return;
+        }
+
+        const isPasswordValid = validatePasswordUI(password);
+        if (!validatePasswordUI(password)) {
+            showMessage('loginMessage', 'Password does not meet the specified complexity guidelines.', 'error');
+            return;
+        }
+
+        // Execute login
+        await loginUser(email, password, role);
+    });
+}
     }
 });
+
+
